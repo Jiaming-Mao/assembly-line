@@ -1,5 +1,8 @@
 .DS_Store
 
+# Generated outputs
+output/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -24,5 +27,6 @@ ENV/
 # Editors
 .vscode/
 .idea/
+
 
 

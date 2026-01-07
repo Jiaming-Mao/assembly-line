@@ -77,7 +77,7 @@ pip install -r requirements.txt
 python3 -m app.main
 ```
 
-不推荐直接运行 `app/main.py`（会导致相对导入错误），请始终使用上面的模块方式启动。
+推荐使用 `python -m app.main` 启动（导入路径更稳定）。同时，程序也已兼容 `python app/main.py` 直接运行（内部会自动处理包导入），两种方式均可用。
 
 ### 首次运行
 
@@ -169,11 +169,16 @@ assembly line/
 4. **CSV 批量生成**
    - 切换到 "CSV 批量" 标签页
    - 选择 CSV 文件
+   - 可先点击 "导出 CSV 模板" 生成当前模板对应的表头（推荐）
    - 点击 "批量生成"
 
 ### CSV 文件格式
 
-CSV 文件 **仅支持按 key 显式映射的新 schema**（列名不区分大小写）。旧 schema（如 `title/subtitle/screenshots/template/output/background`）已不再支持。
+CSV 文件 **仅支持按 key 显式映射的新 schema**。旧 schema（如 `title/subtitle/screenshots/template/output/background`）已不再支持。
+
+> 重要：列名大小写规则
+> - `template_key` / `output_name` / `background_path`：**列名大小写不敏感**
+> - `text.<textKey>` / `slot.<slotKey>`：`text.` / `slot.` 前缀大小写不敏感，但 **`.` 后面的 `<textKey>/<slotKey>` 必须与模板中的 key 完全一致**（建议统一使用小写 key）
 > 提示：从 Excel/WPS 导出的 CSV 可能带 BOM/零宽字符，程序已做兼容，无需手动处理。
 
 #### 新 schema
@@ -211,6 +216,10 @@ left-right-green,case-002.png,,一张表管公司,#111111,让业务流转起来,
    - 点击 "+ Slot" 添加图片插槽
    - 点击 "+ Text" 添加文本块
    - 建议为元素设置**稳定且语义化的 key**（CSV 列名直接取决于 key）
+   - key 约束：
+     - 不允许为空
+     - **不允许包含 `.`**
+     - **大小写不敏感去重**（例如 `Title` 与 `title` 会被视为重复）
 
 4. **调整元素**
    - 在画布上点击选择元素
@@ -219,10 +228,26 @@ left-right-green,case-002.png,,一张表管公司,#111111,让业务流转起来,
      - 水平对齐：`left`（左对齐）、`center`（居中）、`right`（右对齐）
      - 垂直对齐：`top`（顶部）、`center`（居中）、`bottom`（底部）
    - 点击 "Apply Changes" 应用更改
+   - **旋转插槽交互说明**：
+     - 当 slot 设置了 `rotation/rotate_x/rotate_y` 时，画布上的预览会显示为旋转后的多边形
+     - 点击命中与拖拽会按该多边形进行（不再按原 `box` 矩形范围）
+     - 预览斜边已做抗锯齿处理（超采样绘制），视觉效果更接近最终导出
 
 5. **保存模板**
    - 点击 "Save Template" 保存
    - 模板将保存到 `app/templates/` 目录
+
+> 提示：编辑器字段覆盖范围
+>
+> 目前编辑器 UI 只支持一部分字段的可视化编辑，其他高级排版/效果需手动编辑模板 JSON。
+>
+> | 模块 | 编辑器 UI 支持 | 仅 JSON 支持（需手改） |
+> |------|----------------|------------------------|
+> | Background | `kind` / `value` / `opacity` / `gradient_type` / `gradient_angle` / `gradient_center` / `gradient_stops` | - |
+> | Slot | `key` / `box` / `radius` / `fit` / `padding` / `align_x` / `align_y` / `rotation` / `rotate_x` / `rotate_y` | - |
+> | Text | `key` / `box` / `style.font` / `style.size` / `style.color` / `style.align` | `style.max_width` / `style.line_spacing` / `style.stroke_width` / `style.stroke_fill` / `style.shadow` |
+
+> 建议：团队协作/跨机器使用模板时，尽量避免在模板 JSON 中写死绝对路径（如 `/Users/...`）。推荐把字体/背景等资源放到项目目录（例如 `assets/`）并使用相对路径，或在运行时通过表单/CSV 的 `background_path` 与 `slot.<key>` 传入图片路径覆盖模板值。
 
 ## 代码架构
 
@@ -560,9 +585,14 @@ with open("data.csv", encoding="utf-8") as f:
   - 在 `contain` 模式下，控制图片在插槽中的垂直位置
 - `rotation`: 旋转角度（度），默认 `0`
   - **正角度 = 顺时针**
-  - 旋转的是**整个插槽图层**（包含 padding + 圆角），并且旋转后仍裁剪在 `box` 范围内（不扩展画布）
+  - 旋转的是**整个插槽图层**（包含 padding + 圆角）
+- `rotate_x`: 绕 X 轴旋转角度（度），默认 `0`
+- `rotate_y`: 绕 Y 轴旋转角度（度），默认 `0`
+  - `rotate_x/rotate_y/rotation(rotate_z)` 会触发 3D 投影渲染（使用固定相机距离产生透视效果）
+  - 渲染时会按变换后的四边形计算实际包围盒并扩展输出图层，**不会被原始 `box` 裁剪**；`box.x/y` 仍作为定位锚点
+  - 斜边已做抗锯齿优化：编辑器预览使用超采样绘制，导出渲染对 warp 做超采样后再缩小
 
-> 注意：如果模板里出现 `perspective` 等字段，当前版本仍会忽略（尚未实现）。
+> 注意：模板不支持 `perspective` 字段（已移除），透视效果使用内部固定参数（对模板作者透明）。
 
 ### 文本样式
 
@@ -634,9 +664,16 @@ A: 在模板编辑器中：
 3. 设置渐变角度（Linear）或中心点（Radial）
 4. 编辑渐变色标（JSON 格式）
 
+注意：
+- 渐变色标 `gradient_stops[].color` **仅支持 `#RRGGBB`**（不支持 `#RRGGBBAA` 这种 8 位带透明度写法）
+- 透明度请使用 `background.opacity` 控制（会作用于整张渐变层）
+
 ### Q: 文本换行如何处理？
 
-A: 文本会自动根据 `max_width` 或 `box` 宽度换行。可以通过调整 `line_spacing` 控制行间距。
+A: 当前版本的自动换行是**按空白分词**（空格/制表符/换行等都会被当作分隔符）后再根据 `max_width` 或 `box` 宽度进行换行：
+- 对英文/有空格的文本效果较好
+- 对中文（无空格）通常不会自动断行；建议适当插入空格、缩短文本、调大 `box`，或拆成多个 TextBlock
+- 由于按空白分词，输入中的手动换行（`\n`）会被当成分隔符，**不会保留为强制换行**
 
 ### Q: 如何导出高质量图片？
 

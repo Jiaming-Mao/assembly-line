@@ -4,12 +4,13 @@ import csv
 import json
 import tkinter as tk
 import sys
+import math
 from copy import deepcopy
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Optional, Tuple
 
-from PIL import ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 # Allow running as `python app/main.py`
 if __package__ in (None, ""):
@@ -24,6 +25,98 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = Path(__file__).resolve().parent
 TEMPLATE_DIR = APP_DIR / "templates"
 OUTPUT_DIR = ROOT_DIR / "output"
+
+
+def _project_slot_quad(w: int, h: int, rotate_x: float, rotate_y: float, rotate_z: float, camera_k: float = 2.5):
+    """Same math as render-side: compute projected quad corners in template coordinates."""
+    cx, cy = w / 2.0, h / 2.0
+
+    rx = max(-89.0, min(89.0, float(rotate_x or 0.0)))
+    ry = max(-89.0, min(89.0, float(rotate_y or 0.0)))
+    rz = float(rotate_z or 0.0)
+
+    ax, ay, az = math.radians(rx), math.radians(ry), math.radians(rz)
+    cosx, sinx = math.cos(ax), math.sin(ax)
+    cosy, siny = math.cos(ay), math.sin(ay)
+    cosz, sinz = math.cos(az), math.sin(az)
+
+    d = max(1.0, float(camera_k) * float(max(w, h)))
+    eps = 1e-6
+
+    def rot_z(X, Y, Z):
+        return (X * cosz - Y * sinz, X * sinz + Y * cosz, Z)
+
+    def rot_x(X, Y, Z):
+        return (X, Y * cosx - Z * sinx, Y * sinx + Z * cosx)
+
+    def rot_y(X, Y, Z):
+        return (X * cosy + Z * siny, Y, -X * siny + Z * cosy)
+
+    def project(X, Y, Z):
+        denom = (d - Z)
+        if abs(denom) < eps:
+            denom = eps if denom >= 0 else -eps
+        s = d / denom
+        return (X * s + cx, Y * s + cy)
+
+    corners = [(-cx, -cy, 0.0), (cx, -cy, 0.0), (cx, cy, 0.0), (-cx, cy, 0.0)]
+    out = []
+    for X, Y, Z in corners:
+        X, Y, Z = rot_z(X, Y, Z)
+        X, Y, Z = rot_x(X, Y, Z)
+        X, Y, Z = rot_y(X, Y, Z)
+        out.append(project(X, Y, Z))
+    return out
+
+
+def _point_in_polygon(px: float, py: float, poly: list[tuple[float, float]]) -> bool:
+    """
+    Ray casting (even-odd rule). poly is a list of (x,y) in canvas coords.
+    Points exactly on an edge are treated as inside for UX.
+    """
+    n = len(poly)
+    if n < 3:
+        return False
+
+    inside = False
+    x1, y1 = poly[-1]
+    eps = 1e-9
+    for x2, y2 in poly:
+        # Check if point is on segment (x1,y1)-(x2,y2)
+        dx = x2 - x1
+        dy = y2 - y1
+        if abs(dx) < eps and abs(dy) < eps:
+            x1, y1 = x2, y2
+            continue
+        # projection test for colinearity + within bounds
+        t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+        if 0.0 <= t <= 1.0:
+            cx = x1 + t * dx
+            cy = y1 + t * dy
+            if abs(cx - px) < 1.0 and abs(cy - py) < 1.0:
+                # within ~1px of edge: treat as inside
+                return True
+
+        # Ray casting
+        intersects = ((y1 > py) != (y2 > py)) and (px < (dx * (py - y1) / (dy + eps) + x1))
+        if intersects:
+            inside = not inside
+        x1, y1 = x2, y2
+
+    return inside
+
+
+def _slot_polygon_points_in_canvas(slot_item: dict, scale: float) -> list[tuple[float, float]]:
+    """Return slot polygon points in canvas coords (scaled), always 4 points."""
+    x, y, bw, bh = slot_item.get("box", [0, 0, 0, 0])
+    rx = float(slot_item.get("rotate_x", 0) or 0)
+    ry = float(slot_item.get("rotate_y", 0) or 0)
+    rz = float(slot_item.get("rotation", 0) or 0)
+    if rx or ry or rz:
+        quad = _project_slot_quad(bw, bh, rotate_x=rx, rotate_y=ry, rotate_z=rz, camera_k=2.5)
+    else:
+        quad = [(0.0, 0.0), (float(bw), 0.0), (float(bw), float(bh)), (0.0, float(bh))]
+    return [((x + qx) * scale, (y + qy) * scale) for (qx, qy) in quad]
 
 
 class TemplateEditor(tk.Toplevel):
@@ -186,6 +279,14 @@ class TemplateEditor(tk.Toplevel):
         self.rotation_var = tk.StringVar(value="0")
         ttk.Entry(slot_frame, textvariable=self.rotation_var, width=8).grid(row=5, column=1, sticky="w")
 
+        ttk.Label(slot_frame, text="Rotate X (deg)").grid(row=6, column=0, sticky="w")
+        self.rotate_x_var = tk.StringVar(value="0")
+        ttk.Entry(slot_frame, textvariable=self.rotate_x_var, width=8).grid(row=6, column=1, sticky="w")
+
+        ttk.Label(slot_frame, text="Rotate Y (deg)").grid(row=7, column=0, sticky="w")
+        self.rotate_y_var = tk.StringVar(value="0")
+        ttk.Entry(slot_frame, textvariable=self.rotate_y_var, width=8).grid(row=7, column=1, sticky="w")
+
         # Text options
         text_frame = ttk.Labelframe(self.detail, text="Text", padding=6)
         text_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=4)
@@ -224,17 +325,39 @@ class TemplateEditor(tk.Toplevel):
         w, h = self.state.get("size", [1080, 1920])
         self.canvas.create_rectangle(0, 0, w * scale, h * scale, fill="#ffffff", outline="#cccccc")
 
+        # Anti-aliased overlay for slots (Canvas polygons are not anti-aliased)
+        factor = 4
+        overlay_hi = Image.new("RGBA", (self.canvas_w * factor, self.canvas_h * factor), (0, 0, 0, 0))
+        draw_hi = ImageDraw.Draw(overlay_hi)
+
         for kind, idx, box in self._boxes():
             x, y, bw, bh = box
             cx1, cy1 = x * scale, y * scale
             cx2, cy2 = (x + bw) * scale, (y + bh) * scale
             color = "#83bff6" if kind == "slot" else "#f6c483"
             tag = f"{kind}-{idx}"
-            self.canvas.create_rectangle(cx1, cy1, cx2, cy2, outline="#333333", width=2, fill=color, stipple="gray25", tags=tag)
+            if kind == "slot":
+                item = self.state["slots"][idx]
+                poly = _slot_polygon_points_in_canvas(item, scale)
+                pts_hi = [(px * factor, py * factor) for (px, py) in poly]
+
+                # fill + outline (semi-transparent)
+                draw_hi.polygon(pts_hi, fill=(131, 191, 246, 90), outline=(51, 51, 51, 255), width=2 * factor)
+
+                # selection outline only (avoid black fill)
+                if self.selected == (kind, idx):
+                    draw_hi.line(pts_hi + [pts_hi[0]], fill=(255, 51, 102, 255), width=2 * factor)
+            else:
+                self.canvas.create_rectangle(cx1, cy1, cx2, cy2, outline="#333333", width=2, fill=color, stipple="gray25", tags=tag)
             label = self.state[kind + "s"][idx].get("key", f"{kind}-{idx}")
             self.canvas.create_text(cx1 + 6, cy1 + 6, anchor="nw", text=label, font=("Arial", 10), tags=tag)
-            if self.selected == (kind, idx):
+            if self.selected == (kind, idx) and kind != "slot":
                 self.canvas.create_rectangle(cx1, cy1, cx2, cy2, outline="#ff3366", width=2)
+
+        # Composite hi-res overlay down to canvas
+        overlay = overlay_hi.resize((self.canvas_w, self.canvas_h), Image.Resampling.LANCZOS)
+        self.overlay_tk = ImageTk.PhotoImage(overlay)
+        self.canvas.create_image(0, 0, anchor="nw", image=self.overlay_tk)
 
     def _sync_list(self):
         self.listbox.delete(0, tk.END)
@@ -267,7 +390,7 @@ class TemplateEditor(tk.Toplevel):
     # Element ops ------------------------------------------------------------
     def _add_slot(self):
         size = self.state.get("size", [1080, 1920])
-        self.state.setdefault("slots", []).append({"key": f"slot-{len(self.state.get('slots', [])) + 1}", "box": [50, 50, size[0] // 2, size[1] // 3], "radius": 24, "fit": "cover", "padding": 0, "align_x": "center", "align_y": "center", "rotation": 0})
+        self.state.setdefault("slots", []).append({"key": f"slot-{len(self.state.get('slots', [])) + 1}", "box": [50, 50, size[0] // 2, size[1] // 3], "radius": 24, "fit": "cover", "padding": 0, "align_x": "center", "align_y": "center", "rotation": 0, "rotate_x": 0, "rotate_y": 0})
         self.selected = ("slot", len(self.state["slots"]) - 1)
         self.redraw()
         self._load_detail()
@@ -335,6 +458,8 @@ class TemplateEditor(tk.Toplevel):
             self.align_x_var.set(item.get("align_x", "center"))
             self.align_y_var.set(item.get("align_y", "center"))
             self.rotation_var.set(str(item.get("rotation", 0) or 0))
+            self.rotate_x_var.set(str(item.get("rotate_x", 0) or 0))
+            self.rotate_y_var.set(str(item.get("rotate_y", 0) or 0))
         else:
             style = item.get("style", {})
             self.font_var.set(style.get("font", ""))
@@ -377,6 +502,14 @@ class TemplateEditor(tk.Toplevel):
                 item["rotation"] = float(self.rotation_var.get())
             except (ValueError, tk.TclError):
                 item["rotation"] = 0
+            try:
+                item["rotate_x"] = float(self.rotate_x_var.get())
+            except (ValueError, tk.TclError):
+                item["rotate_x"] = 0
+            try:
+                item["rotate_y"] = float(self.rotate_y_var.get())
+            except (ValueError, tk.TclError):
+                item["rotate_y"] = 0
         else:
             style = item.get("style", {})
             style["font"] = self.font_var.get().strip() or None
@@ -394,12 +527,22 @@ class TemplateEditor(tk.Toplevel):
         scale = self._scale()
         for kind, idx, box in reversed(self._boxes()):
             x, y, w, h = box
-            if x * scale <= event.x <= (x + w) * scale and y * scale <= event.y <= (y + h) * scale:
-                self.selected = (kind, idx)
-                self._load_detail()
-                self.redraw()
-                self.drag_start = (event.x, event.y, x, y)
-                return
+            if kind == "slot":
+                item = self.state["slots"][idx]
+                poly = _slot_polygon_points_in_canvas(item, scale)
+                if _point_in_polygon(event.x, event.y, poly):
+                    self.selected = (kind, idx)
+                    self._load_detail()
+                    self.redraw()
+                    self.drag_start = (event.x, event.y, x, y)
+                    return
+            else:
+                if x * scale <= event.x <= (x + w) * scale and y * scale <= event.y <= (y + h) * scale:
+                    self.selected = (kind, idx)
+                    self._load_detail()
+                    self.redraw()
+                    self.drag_start = (event.x, event.y, x, y)
+                    return
         self.selected = None
         self._load_detail()
         self.redraw()

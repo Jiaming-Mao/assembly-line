@@ -168,6 +168,84 @@ def _round_corners(img: Image.Image, radius: int) -> Image.Image:
     return img
 
 
+def _project_slot_quad(w: int, h: int, rotate_x: float, rotate_y: float, rotate_z: float, camera_k: float = 2.5):
+    """
+    Project a rectangle (slot layer) with 3D rotations to a 2D quad in the same (w,h) output space.
+
+    Coordinate convention:
+    - X: right
+    - Y: down (image coords)
+    - Z: towards viewer (out of screen)
+
+    Perspective uses a fixed camera distance: d = camera_k * max(w, h).
+    Returns 4 points [(x0,y0), (x1,y1), (x2,y2), (x3,y3)] corresponding to
+    source corners [(0,0), (w,0), (w,h), (0,h)].
+    """
+    cx, cy = w / 2.0, h / 2.0
+
+    # Clamp to avoid extreme projection instability
+    rx = max(-89.0, min(89.0, float(rotate_x or 0.0)))
+    ry = max(-89.0, min(89.0, float(rotate_y or 0.0)))
+    rz = float(rotate_z or 0.0)
+
+    ax, ay, az = math.radians(rx), math.radians(ry), math.radians(rz)
+    cosx, sinx = math.cos(ax), math.sin(ax)
+    cosy, siny = math.cos(ay), math.sin(ay)
+    cosz, sinz = math.cos(az), math.sin(az)
+
+    # Fixed camera distance
+    d = max(1.0, float(camera_k) * float(max(w, h)))
+    eps = 1e-6
+
+    def rot_z(X, Y, Z):
+        return (X * cosz - Y * sinz, X * sinz + Y * cosz, Z)
+
+    def rot_x(X, Y, Z):
+        return (X, Y * cosx - Z * sinx, Y * sinx + Z * cosx)
+
+    def rot_y(X, Y, Z):
+        return (X * cosy + Z * siny, Y, -X * siny + Z * cosy)
+
+    def project(X, Y, Z):
+        denom = (d - Z)
+        if abs(denom) < eps:
+            denom = eps if denom >= 0 else -eps
+        s = d / denom
+        return (X * s + cx, Y * s + cy)
+
+    corners = [(-cx, -cy, 0.0), (cx, -cy, 0.0), (cx, cy, 0.0), (-cx, cy, 0.0)]
+    out = []
+    for X, Y, Z in corners:
+        X, Y, Z = rot_z(X, Y, Z)
+        X, Y, Z = rot_x(X, Y, Z)
+        X, Y, Z = rot_y(X, Y, Z)
+        out.append(project(X, Y, Z))
+    return out
+
+
+def _perspective_coeffs(dst_quad, src_quad):
+    """
+    Compute Pillow PERSPECTIVE coefficients that map output (dst) -> input (src).
+    dst_quad/src_quad are 4 points [(x,y), ...] in corresponding order.
+    """
+    if len(dst_quad) != 4 or len(src_quad) != 4:
+        raise ValueError("dst_quad/src_quad must have 4 points")
+
+    A = []
+    B = []
+    for (x, y), (u, v) in zip(dst_quad, src_quad):
+        A.append([x, y, 1, 0, 0, 0, -u * x, -u * y])
+        A.append([0, 0, 0, x, y, 1, -v * x, -v * y])
+        B.append(u)
+        B.append(v)
+    A = np.asarray(A, dtype=np.float64)
+    B = np.asarray(B, dtype=np.float64)
+
+    # Solve A * coeffs = B
+    coeffs = np.linalg.solve(A, B)
+    return tuple(float(x) for x in coeffs.tolist())
+
+
 def place_slot(base: Image.Image, slot: Slot, content_path: Path):
     if not content_path.exists():
         return
@@ -181,18 +259,47 @@ def place_slot(base: Image.Image, slot: Slot, content_path: Path):
     slot_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     slot_layer.alpha_composite(rounded, dest=(pad, pad))
 
-    rotation = float(getattr(slot, "rotation", 0) or 0)
-    if rotation:
-        # Template semantics: positive = clockwise. PIL: positive = counter-clockwise.
-        pil_angle = -rotation
-        slot_layer = slot_layer.rotate(
-            pil_angle,
-            resample=Image.Resampling.BICUBIC,
-            expand=False,  # keep (w, h) => out-of-bounds is cropped
-            center=(w / 2, h / 2),
-        )
+    rotate_x = float(getattr(slot, "rotate_x", 0) or 0)
+    rotate_y = float(getattr(slot, "rotate_y", 0) or 0)
+    rotate_z = float(getattr(slot, "rotation", 0) or 0)  # keep existing field name/semantics
 
-    base.alpha_composite(slot_layer, dest=(x, y))
+    if rotate_x or rotate_y or rotate_z:
+        dst_quad = _project_slot_quad(w, h, rotate_x=rotate_x, rotate_y=rotate_y, rotate_z=rotate_z, camera_k=2.5)
+
+        # Expand output canvas to rotated quad bounds so we don't clip.
+        xs = [p[0] for p in dst_quad]
+        ys = [p[1] for p in dst_quad]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+
+        out_w = max(1, int(math.ceil(max_x - min_x)))
+        out_h = max(1, int(math.ceil(max_y - min_y)))
+
+        # Supersample warp to reduce jagged edges on slanted boundaries.
+        factor = 2
+        w_hi, h_hi = w * factor, h * factor
+        out_w_hi, out_h_hi = out_w * factor, out_h * factor
+
+        slot_layer_hi = slot_layer.resize((w_hi, h_hi), Image.Resampling.LANCZOS)
+
+        # Shift quad into output canvas space (0..out_w/out_h) and scale to hi-res
+        dst_quad_shifted_hi = [((px - min_x) * factor, (py - min_y) * factor) for (px, py) in dst_quad]
+        src_quad_hi = [(0.0, 0.0), (float(w_hi), 0.0), (float(w_hi), float(h_hi)), (0.0, float(h_hi))]
+
+        coeffs_hi = _perspective_coeffs(dst_quad_shifted_hi, src_quad_hi)
+        warped_hi = slot_layer_hi.transform(
+            (out_w_hi, out_h_hi),
+            Image.Transform.PERSPECTIVE,
+            coeffs_hi,
+            resample=Image.Resampling.BICUBIC,
+        )
+        warped = warped_hi.resize((out_w, out_h), Image.Resampling.LANCZOS)
+
+        dest_x = int(round(x + min_x))
+        dest_y = int(round(y + min_y))
+        base.alpha_composite(warped, dest=(dest_x, dest_y))
+    else:
+        base.alpha_composite(slot_layer, dest=(x, y))
 
 
 def _draw_gradient(img: Image.Image, config) -> Image.Image:

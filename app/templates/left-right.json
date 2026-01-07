@@ -1,0 +1,102 @@
+{
+  "key": "left-right",
+  "name": "左右布局",
+  "size": [
+    1400,
+    864
+  ],
+  "background": {
+    "kind": "image",
+    "value": "/Users/bytedance/Downloads/Frame 2147225004.jpg",
+    "opacity": 1.0
+  },
+  "slots": [
+    {
+      "key": "background",
+      "box": [
+        0,
+        0,
+        1400,
+        864
+      ],
+      "radius": 0,
+      "fit": "cover",
+      "padding": 0,
+      "align_x": "center",
+      "align_y": "top",
+      "rotation": 0.0
+    },
+    {
+      "key": "glass",
+      "box": [
+        592,
+        108,
+        1000,
+        648
+      ],
+      "radius": 0,
+      "fit": "cover",
+      "padding": 0,
+      "align_x": "left",
+      "align_y": "center",
+      "rotation": 0.0
+    },
+    {
+      "key": "ui-1",
+      "box": [
+        608,
+        124,
+        1100,
+        616
+      ],
+      "radius": 24,
+      "fit": "cover",
+      "padding": 0,
+      "align_x": "left",
+      "align_y": "top",
+      "rotation": 0.0
+    }
+  ],
+  "texts": [
+    {
+      "key": "title",
+      "box": [
+        80,
+        309,
+        500,
+        160
+      ],
+      "style": {
+        "font": "/Users/bytedance/Downloads/OPPO Sans 4.0.ttf",
+        "size": 80,
+        "color": "#188164",
+        "align": "left",
+        "max_width": null,
+        "line_spacing": 1.2,
+        "stroke_width": 0,
+        "stroke_fill": null,
+        "shadow": null
+      }
+    },
+    {
+      "key": "subtitle",
+      "box": [
+        80,
+        420,
+        500,
+        80
+      ],
+      "style": {
+        "font": "/Users/bytedance/Downloads/OPPO Sans 4.0.ttf",
+        "size": 32,
+        "color": "#188164",
+        "align": "left",
+        "max_width": null,
+        "line_spacing": 1.2,
+        "stroke_width": 0,
+        "stroke_fill": null,
+        "shadow": null
+      }
+    }
+  ]
+}

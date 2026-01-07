@@ -93,6 +93,8 @@ def template_to_dict(template: TemplateDefinition) -> dict:
                 "align_x": slot.align_x,
                 "align_y": slot.align_y,
                 "rotation": slot.rotation,
+                "rotate_x": float(getattr(slot, "rotate_x", 0.0) or 0.0),
+                "rotate_y": float(getattr(slot, "rotate_y", 0.0) or 0.0),
             }
             for slot in template.slots
         ],

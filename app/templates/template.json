@@ -1,69 +1,67 @@
 {
-  "key": "default-landscape",
-  "name": "Default Cover (Landscape)",
+  "key": "template",
+  "name": "模板类",
   "size": [
     1400,
-    868
+    864
   ],
   "background": {
     "kind": "color",
-    "value": "#f5f5f5",
+    "value": "#ffffff",
     "opacity": 1.0
   },
   "slots": [
     {
-      "key": "main",
+      "key": "background",
       "box": [
-        90,
-        420,
-        900,
-        1080
+        0,
+        0,
+        1400,
+        864
       ],
-      "radius": 32,
+      "radius": 0,
       "fit": "cover",
-      "padding": 0
-    }
-  ],
-  "texts": [
-    {
-      "key": "title",
-      "box": [
-        90,
-        120,
-        900,
-        180
-      ],
-      "style": {
-        "font": null,
-        "size": 64,
-        "color": "#111111",
-        "align": "left",
-        "max_width": null,
-        "line_spacing": 1.2,
-        "stroke_width": 0,
-        "stroke_fill": null,
-        "shadow": null
-      }
+      "padding": 0,
+      "align_x": "center",
+      "align_y": "top",
+      "rotation": 0.0,
+      "rotate_x": 0.0,
+      "rotate_y": 0.0
     },
     {
-      "key": "subtitle",
+      "key": "overlay",
       "box": [
-        90,
-        280,
-        900,
-        100
+        80,
+        80,
+        1240,
+        784
       ],
-      "style": {
-        "font": null,
-        "size": 36,
-        "color": "#444444",
-        "align": "left",
-        "max_width": null,
-        "line_spacing": 1.2,
-        "stroke_width": 0,
-        "stroke_fill": null,
-        "shadow": null
-      }
+      "radius": 0,
+      "fit": "cover",
+      "padding": 0,
+      "align_x": "left",
+      "align_y": "top",
+      "rotation": 0.0,
+      "rotate_x": 0.0,
+      "rotate_y": 0.0
+    },
+    {
+      "key": "ui",
+      "box": [
+        96,
+        96,
+        1208,
+        768
+      ],
+      "radius": 24,
+      "fit": "cover",
+      "padding": 0,
+      "align_x": "center",
+      "align_y": "top",
+      "rotation": 0.0,
+      "rotate_x": 0.0,
+      "rotate_y": 0.0
     }
-  ]
+  ],
+  "texts": []
 }

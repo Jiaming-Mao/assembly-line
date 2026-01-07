@@ -31,6 +31,8 @@ class Slot:
     align_x: str = "center"  # left | center | right
     align_y: str = "center"  # top | center | bottom
     rotation: float = 0.0  # degrees, positive = clockwise
+    rotate_x: float = 0.0  # degrees
+    rotate_y: float = 0.0  # degrees
 
 
 @dataclass
@@ -119,6 +121,8 @@ def load_template_from_json(data: Dict[str, Any]) -> TemplateDefinition:
                 align_x=slot.get("align_x", "center"),
                 align_y=slot.get("align_y", "center"),
                 rotation=float(slot.get("rotation", 0) or 0),
+                rotate_x=float(slot.get("rotate_x", 0) or 0),
+                rotate_y=float(slot.get("rotate_y", 0) or 0),
             )
         )
 
