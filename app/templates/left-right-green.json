@@ -53,7 +53,7 @@
       "fit": "cover",
       "padding": 0,
       "align_x": "left",
-      "align_y": "center",
+      "align_y": "top",
       "rotation": 0.0
     }
   ],
@@ -87,7 +87,7 @@
         80
       ],
       "style": {
-        "font": "None",
+        "font": "/Users/bytedance/Downloads/OPPO Sans 4.0.ttf",
         "size": 32,
         "color": "#188164",
         "align": "left",

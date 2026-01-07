@@ -123,10 +123,9 @@ class TemplateEditor(tk.Toplevel):
         btn_row = ttk.Frame(left)
         btn_row.grid(row=6, column=0, columnspan=2, pady=4, sticky="ew")
         ttk.Button(btn_row, text="+ Slot", command=self._add_slot).grid(row=0, column=0, padx=2)
-        ttk.Button(btn_row, text="+ Title", command=lambda: self._add_text("title")).grid(row=0, column=1, padx=2)
-        ttk.Button(btn_row, text="+ Subtitle", command=lambda: self._add_text("subtitle")).grid(row=0, column=2, padx=2)
-        ttk.Button(btn_row, text="+ Text", command=lambda: self._add_text("text")).grid(row=0, column=3, padx=2)
-        ttk.Button(btn_row, text="Delete", command=self._delete_selected).grid(row=0, column=4, padx=2)
+        ttk.Button(btn_row, text="+ Text", command=self._add_text).grid(row=0, column=1, padx=2)
+        ttk.Button(btn_row, text="Normalize Keys", command=self._normalize_keys).grid(row=0, column=2, padx=2)
+        ttk.Button(btn_row, text="Delete", command=self._delete_selected).grid(row=0, column=3, padx=2)
 
         # Canvas preview
         self.canvas = tk.Canvas(center, width=self.canvas_w, height=self.canvas_h, bg="#f0f0f0", highlightthickness=1, highlightbackground="#ccc")
@@ -142,6 +141,9 @@ class TemplateEditor(tk.Toplevel):
         ttk.Label(self.detail, text="Key").grid(row=0, column=0, sticky="w")
         self.elem_key = tk.StringVar()
         ttk.Entry(self.detail, textvariable=self.elem_key, width=20).grid(row=0, column=1, sticky="ew")
+        ttk.Label(self.detail, text="CSV Column").grid(row=0, column=2, sticky="w", padx=(8, 0))
+        self.csv_col_var = tk.StringVar(value="")
+        ttk.Label(self.detail, textvariable=self.csv_col_var).grid(row=0, column=3, sticky="w")
 
         self.elem_type = tk.StringVar(value="slot")
         ttk.Label(self.detail, text="Type").grid(row=1, column=0, sticky="w")
@@ -270,14 +272,15 @@ class TemplateEditor(tk.Toplevel):
         self.redraw()
         self._load_detail()
 
-    def _add_text(self, key: str):
+    def _add_text(self):
         size = self.state.get("size", [1080, 1920])
-        default_h = 120 if key == "title" else 80
+        default_h = 80
+        next_idx = len(self.state.get("texts", [])) + 1
         self.state.setdefault("texts", []).append(
             {
-                "key": key if key in ["title", "subtitle"] else f"text-{len(self.state.get('texts', [])) + 1}",
+                "key": f"text-{next_idx}",
                 "box": [60, 60, size[0] // 2, default_h],
-                "style": {"size": 48 if key == "title" else 32, "color": "#111111", "align": "left"},
+                "style": {"size": 32, "color": "#111111", "align": "left"},
             }
         )
         self.selected = ("text", len(self.state["texts"]) - 1)
@@ -309,11 +312,17 @@ class TemplateEditor(tk.Toplevel):
     def _load_detail(self):
         if not self.selected:
             self.elem_key.set("")
+            self.csv_col_var.set("")
             return
         kind, idx = self.selected
         item = self.state[kind + "s"][idx]
         self.elem_type.set(kind)
-        self.elem_key.set(item.get("key", ""))
+        current_key = item.get("key", "")
+        self.elem_key.set(current_key)
+        if kind == "slot":
+            self.csv_col_var.set(f"slot.{current_key}" if current_key else "")
+        else:
+            self.csv_col_var.set(f"text.{current_key}" if current_key else "")
         x, y, w, h = item.get("box", [0, 0, 100, 100])
         self.x_var.set(x)
         self.y_var.set(y)
@@ -339,6 +348,9 @@ class TemplateEditor(tk.Toplevel):
         kind, idx = self.selected
         item = self.state[kind + "s"][idx]
         item["key"] = self.elem_key.get().strip() or item.get("key")
+        # update CSV hint immediately
+        k = item.get("key", "")
+        self.csv_col_var.set((f"slot.{k}" if kind == "slot" else f"text.{k}") if k else "")
         # Safely get integer values from Entry widgets
         try:
             x_val = int(self.x_var.get())
@@ -423,6 +435,12 @@ class TemplateEditor(tk.Toplevel):
         # Apply any pending changes from UI to state before saving
         if self.selected:
             self._apply_detail()
+
+        # Validate keys (new schema relies on keys for CSV columns)
+        err = self._validate_keys()
+        if err:
+            messagebox.showerror("Error", err)
+            return
         
         bg_data = {"kind": self.bg_kind.get(), "value": self.bg_value.get(), "opacity": float(self.bg_opacity.get())}
         if self.bg_kind.get() == "gradient":
@@ -448,6 +466,78 @@ class TemplateEditor(tk.Toplevel):
             self.destroy()
         except Exception as exc:
             messagebox.showerror("Error", f"Failed to save template: {exc}")
+
+    def _validate_keys(self) -> Optional[str]:
+        def _norm(s: str) -> str:
+            return (s or "").strip()
+
+        for group in ["slots", "texts"]:
+            items = self.state.get(group, []) or []
+            seen = set()
+            for i, it in enumerate(items, start=1):
+                key = _norm(it.get("key", ""))
+                if not key:
+                    return f"{group} 第 {i} 项的 key 为空"
+                if "." in key:
+                    return f"{group} 第 {i} 项的 key 不允许包含 '.'（当前：{key}）"
+                lower = key.lower()
+                if lower in seen:
+                    return f"{group} 存在重复 key（大小写不敏感）：{key}"
+                seen.add(lower)
+        return None
+
+    def _normalize_keys(self):
+        """Heuristic key normalization to align with recommended schema."""
+        # Slots: prefer background/main/overlay
+        slot_items = self.state.get("slots", []) or []
+        used_slots = set()
+        for s in slot_items:
+            k = (s.get("key") or "").strip()
+            kl = k.lower()
+            if kl in {"background", "bg"}:
+                nk = "background"
+            elif kl in {"glass", "overlay"}:
+                nk = "overlay"
+            elif kl in {"screenshot-1", "screenshot", "ui-1", "ui", "main", "slot-1"}:
+                nk = "main"
+            else:
+                nk = k or "main"
+            # ensure unique
+            base = nk
+            suffix = 2
+            while nk.lower() in used_slots:
+                nk = f"{base}_{suffix}"
+                suffix += 1
+            used_slots.add(nk.lower())
+            s["key"] = nk
+
+        # Texts: prefer title/subtitle/body
+        text_items = self.state.get("texts", []) or []
+        used_texts = set()
+        preferred = ["title", "subtitle", "body"]
+        pref_idx = 0
+        for t in text_items:
+            k = (t.get("key") or "").strip()
+            kl = k.lower()
+            if kl in {"title", "subtitle", "body"}:
+                nk = kl
+            elif kl.startswith("text-") or kl in {"text", ""}:
+                nk = preferred[min(pref_idx, len(preferred) - 1)]
+                pref_idx += 1
+            else:
+                nk = k or preferred[min(pref_idx, len(preferred) - 1)]
+                pref_idx += 1
+            base = nk
+            suffix = 2
+            while nk.lower() in used_texts:
+                nk = f"{base}_{suffix}"
+                suffix += 1
+            used_texts.add(nk.lower())
+            t["key"] = nk
+
+        # refresh UI
+        self.redraw()
+        self._load_detail()
 
 
 class CoverApp(tk.Tk):
@@ -480,6 +570,7 @@ class CoverApp(tk.Tk):
         ttk.Label(top, text="Template").grid(row=0, column=0, sticky="w")
         self.template_select = ttk.Combobox(top, values=self.registry.keys(), textvariable=self.template_var, width=20, state="readonly")
         self.template_select.grid(row=0, column=1, padx=4)
+        self.template_select.bind("<<ComboboxSelected>>", lambda _e: self.on_template_change())
         ttk.Button(top, text="Reload", command=self.reload_templates).grid(row=0, column=2, padx=2)
         ttk.Button(top, text="Import JSON", command=self.import_template).grid(row=0, column=3, padx=2)
         ttk.Button(top, text="Template Editor", command=self.open_template_editor).grid(row=0, column=4, padx=2)
@@ -513,40 +604,76 @@ class CoverApp(tk.Tk):
         notebook.add(frame, text="表单")
         frame.columnconfigure(1, weight=1)
 
-        self.title_var = tk.StringVar()
-        self.subtitle_var = tk.StringVar()
-        self.background_var = tk.StringVar()
+        # reserved inputs (new schema)
+        self.background_var = tk.StringVar()  # background_path override
         self.output_name_var = tk.StringVar(value="cover.png")
 
-        ttk.Label(frame, text="标题").grid(row=0, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.title_var).grid(row=0, column=1, sticky="ew")
-        ttk.Label(frame, text="副标题").grid(row=1, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.subtitle_var).grid(row=1, column=1, sticky="ew")
-
-        ttk.Label(frame, text="背景").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text="背景(可选)").grid(row=0, column=0, sticky="w")
         bg_row = ttk.Frame(frame)
-        bg_row.grid(row=2, column=1, sticky="ew")
+        bg_row.grid(row=0, column=1, sticky="ew")
         ttk.Entry(bg_row, textvariable=self.background_var).pack(side="left", fill="x", expand=True)
         ttk.Button(bg_row, text="选择", command=self.pick_background).pack(side="left", padx=4)
 
-        ttk.Label(frame, text="截图").grid(row=3, column=0, sticky="nw")
-        ss_frame = ttk.Frame(frame)
-        ss_frame.grid(row=3, column=1, sticky="ew")
-        ss_frame.columnconfigure(0, weight=1)
-        self.screenshot_list = tk.Listbox(ss_frame, height=5, selectmode="extended")
-        self.screenshot_list.grid(row=0, column=0, sticky="ew")
-        btns = ttk.Frame(ss_frame)
-        btns.grid(row=0, column=1, padx=4)
-        ttk.Button(btns, text="+", width=3, command=self.add_screenshots).grid(row=0, column=0, pady=2)
-        ttk.Button(btns, text="-", width=3, command=self.remove_screenshots).grid(row=1, column=0, pady=2)
+        ttk.Label(frame, text="输出文件名").grid(row=1, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.output_name_var).grid(row=1, column=1, sticky="ew")
 
-        ttk.Label(frame, text="输出文件名").grid(row=4, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.output_name_var).grid(row=4, column=1, sticky="ew")
+        # dynamic inputs per template
+        self.form_dynamic = ttk.Frame(frame)
+        self.form_dynamic.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(10, 0))
+        frame.rowconfigure(2, weight=1)
+
+        self.text_vars = {}
+        self.slot_vars = {}
+        self.rebuild_form_fields()
 
         action_row = ttk.Frame(frame)
-        action_row.grid(row=5, column=0, columnspan=2, pady=8, sticky="ew")
+        action_row.grid(row=3, column=0, columnspan=2, pady=8, sticky="ew")
         ttk.Button(action_row, text="预览", command=self.preview_form).pack(side="left", padx=4)
         ttk.Button(action_row, text="导出", command=self.export_form).pack(side="left", padx=4)
+
+    def on_template_change(self):
+        self.rebuild_form_fields()
+
+    def rebuild_form_fields(self):
+        """Rebuild form inputs based on currently selected template (new schema only)."""
+        for child in self.form_dynamic.winfo_children():
+            child.destroy()
+        self.text_vars = {}
+        self.slot_vars = {}
+
+        template = self._get_template(self.template_var.get())
+
+        if template.texts:
+            text_frame = ttk.Labelframe(self.form_dynamic, text="Texts", padding=8)
+            text_frame.pack(fill="x", expand=False, pady=(0, 8))
+            text_frame.columnconfigure(1, weight=1)
+            for i, t in enumerate(template.texts):
+                key = t.key
+                var = tk.StringVar()
+                self.text_vars[key] = var
+                ttk.Label(text_frame, text=f"{key}  (text.{key})").grid(row=i, column=0, sticky="w", pady=2)
+                ttk.Entry(text_frame, textvariable=var).grid(row=i, column=1, sticky="ew", pady=2)
+
+        if template.slots:
+            slot_frame = ttk.Labelframe(self.form_dynamic, text="Slots", padding=8)
+            slot_frame.pack(fill="x", expand=False)
+            slot_frame.columnconfigure(1, weight=1)
+            for i, s in enumerate(template.slots):
+                key = s.key
+                var = tk.StringVar()
+                self.slot_vars[key] = var
+                ttk.Label(slot_frame, text=f"{key}  (slot.{key})").grid(row=i, column=0, sticky="w", pady=2)
+                entry = ttk.Entry(slot_frame, textvariable=var)
+                entry.grid(row=i, column=1, sticky="ew", pady=2)
+                ttk.Button(slot_frame, text="选择", command=lambda k=key: self.pick_slot_file(k)).grid(row=i, column=2, padx=4)
+
+    def pick_slot_file(self, slot_key: str):
+        path = filedialog.askopenfilename(
+            title=f"选择图片: {slot_key}",
+            filetypes=[("Images", "*.png *.jpg *.jpeg *.webp"), ("All files", "*")],
+        )
+        if path:
+            self.slot_vars.get(slot_key, tk.StringVar()).set(path)
 
     def _build_csv_tab(self, notebook):
         frame = ttk.Frame(notebook, padding=8)
@@ -588,6 +715,7 @@ class CoverApp(tk.Tk):
     def reload_templates(self):
         self.registry.load_with_default(TEMPLATE_DIR)
         self.refresh_templates(self.template_var.get())
+        self.on_template_change()
         self.log("Templates reloaded.")
 
     def import_template(self):
@@ -600,6 +728,7 @@ class CoverApp(tk.Tk):
         try:
             template = self.registry.import_json(Path(path))
             self.refresh_templates(template.key)
+            self.on_template_change()
             self.log(f"Imported template {template.key}")
         except Exception as exc:
             messagebox.showerror("Error", f"Failed to import: {exc}")
@@ -611,6 +740,7 @@ class CoverApp(tk.Tk):
         def _on_save(template):
             self.registry.save_template(template, TEMPLATE_DIR / f"{template.key}.json")
             self.refresh_templates(template.key)
+            self.on_template_change()
 
         TemplateEditor(self, data, self.registry, _on_save)
 
@@ -629,16 +759,12 @@ class CoverApp(tk.Tk):
             self.background_var.set(path)
 
     def add_screenshots(self):
-        paths = filedialog.askopenfilenames(
-            title="选择截图",
-            filetypes=[("Images", "*.png *.jpg *.jpeg *.webp"), ("All files", "*")],
-        )
-        for p in paths:
-            self.screenshot_list.insert(tk.END, p)
+        # legacy UI removed (new schema only)
+        return
 
     def remove_screenshots(self):
-        for idx in reversed(self.screenshot_list.curselection()):
-            self.screenshot_list.delete(idx)
+        # legacy UI removed (new schema only)
+        return
 
     def pick_csv(self):
         path = filedialog.askopenfilename(
@@ -648,11 +774,62 @@ class CoverApp(tk.Tk):
         if path:
             self.csv_path_var.set(path)
             try:
-                with open(path, newline="", encoding="utf-8") as f:
-                    rows = list(csv.DictReader(f))
-                self.csv_count_var.set(f"{len(rows)} 行")
-            except Exception:
+                # Use utf-8-sig to transparently handle UTF-8 BOM from Excel/WPS exports
+                with open(path, newline="", encoding="utf-8-sig") as f:
+                    reader = csv.DictReader(f)
+                    fieldnames = reader.fieldnames or []
+                    rows = list(reader)
+
+                ok, msg = self._validate_csv_header(fieldnames)
+                self.csv_count_var.set(f"{len(rows)} 行" + ("" if ok else f"（表头有问题：{msg}）"))
+                if not ok:
+                    messagebox.showwarning("CSV 表头校验", msg)
+            except Exception as exc:
                 self.csv_count_var.set("读取失败")
+                messagebox.showerror("Error", f"读取 CSV 失败: {exc}")
+
+    def _validate_csv_header(self, fieldnames):
+        def _clean_col(x: str) -> str:
+            # Strip whitespace and common zero-width/BOM characters injected by Excel/WPS exports.
+            # - U+FEFF: BOM / zero width no-break space
+            # - U+200B/200C/200D: zero width space/joiners
+            # - U+2060: word joiner
+            return (x or "").strip().lstrip("\ufeff\u200b\u200c\u200d\u2060")
+
+        lower = [_clean_col(str(x)).lower() for x in (fieldnames or []) if x is not None and _clean_col(str(x))]
+        cols = set(lower)
+        missing = [c for c in ["template_key", "output_name"] if c not in cols]
+        legacy = sorted(
+            c
+            for c in cols
+            if c
+            in {
+                "title",
+                "subtitle",
+                "background",
+                "screenshots",
+                "screenshot",
+                "template",
+                "layout",
+                "layout_key",
+                "output",
+            }
+        )
+        unknown = sorted(
+            c
+            for c in cols
+            if c not in {"template_key", "output_name", "background_path"} and not (c.startswith("text.") or c.startswith("slot."))
+        )
+        if missing or legacy or unknown:
+            parts = []
+            if missing:
+                parts.append("缺少必填列: " + ", ".join(missing))
+            if legacy:
+                parts.append("包含旧列名(不再支持): " + ", ".join(legacy))
+            if unknown:
+                parts.append("包含未知列名: " + ", ".join(unknown))
+            return False, "；".join(parts)
+        return True, "OK"
 
     # Helpers ----------------------------------------------------------------
     def _get_template(self, key: str):
@@ -663,14 +840,14 @@ class CoverApp(tk.Tk):
         return self.registry.get(keys[0]) if keys else default_template()
 
     def _build_render_input(self) -> RenderInput:
-        screenshots = list(self.screenshot_list.get(0, tk.END))
+        texts = {k: v.get() for k, v in (self.text_vars or {}).items() if v.get().strip()}
+        slot_paths = {k: v.get() for k, v in (self.slot_vars or {}).items() if v.get().strip()}
         return RenderInput(
-            title=self.title_var.get(),
-            subtitle=self.subtitle_var.get(),
             background_path=self.background_var.get() or None,
-            screenshot_paths=screenshots,
             template_key=self.template_var.get(),
             output_name=self.output_name_var.get() or "cover.png",
+            texts=texts,
+            slot_paths=slot_paths,
         )
 
     def _show_preview(self, render_input: RenderInput, template_key: str):
@@ -706,7 +883,8 @@ class CoverApp(tk.Tk):
             messagebox.showwarning("提示", "请选择 CSV 文件")
             return
         try:
-            with open(csv_path, newline="", encoding="utf-8") as f:
+            # Use utf-8-sig to transparently handle UTF-8 BOM from Excel/WPS exports
+            with open(csv_path, newline="", encoding="utf-8-sig") as f:
                 rows = list(csv.DictReader(f))
         except Exception as exc:
             messagebox.showerror("Error", f"读取 CSV 失败: {exc}")
@@ -714,15 +892,19 @@ class CoverApp(tk.Tk):
         out_dir = Path(self.output_dir_var.get())
         out_dir.mkdir(parents=True, exist_ok=True)
         success = 0
-        for row in rows:
-            ri = render_input_from_row(row)
+        for idx, row in enumerate(rows, start=1):
+            try:
+                ri = render_input_from_row(row)
+            except Exception as exc:
+                self.log(f"行 {idx} 解析失败: {exc}")
+                continue
             template = self._get_template(ri.template_key)
             output_path = out_dir / ri.output_name
             try:
                 render_to_file(ri, template, output_path)
                 success += 1
             except Exception as exc:
-                self.log(f"行 {row} 失败: {exc}")
+                self.log(f"行 {idx} 渲染失败: {exc}")
         self.log(f"批量完成 {success}/{len(rows)}")
         messagebox.showinfo("完成", f"批量完成 {success}/{len(rows)}")
 

@@ -318,32 +318,19 @@ def ImageColor_get(hex_value: str, opacity: float):
 def compose_cover(render_input: RenderInput, template: TemplateDefinition) -> Image.Image:
     base = apply_background(template, render_input.background_path)
 
-    # place slots
-    # Priority:
-    # - If CSV provided any key-addressable slot mapping (slot_paths not empty), use slot.<key> only.
-    # - Otherwise, fall back to legacy sequential screenshots list.
-    keyed_mode = bool(getattr(render_input, "slot_paths", {}))
+    # place slots (new schema only)
+    keyed_mode = True
     for idx, slot in enumerate(template.slots):
         slot_path = None
-        if keyed_mode:
-            raw = (render_input.slot_paths or {}).get(slot.key)
-            if raw:
-                slot_path = raw
-        else:
-            if idx < len(render_input.screenshot_paths):
-                slot_path = render_input.screenshot_paths[idx]
+        raw = (render_input.slot_paths or {}).get(slot.key)
+        if raw:
+            slot_path = raw
         if slot_path:
             place_slot(base, slot, Path(slot_path))
 
     # texts
     for text in template.texts:
-        # Priority:
-        # - Use key-addressable text content if provided (text.<key>)
-        # - Otherwise, fall back to legacy title/subtitle for those keys
-        if hasattr(render_input, "texts") and text.key in (render_input.texts or {}):
-            content = (render_input.texts or {}).get(text.key, "")
-        else:
-            content = render_input.title if text.key == "title" else render_input.subtitle if text.key == "subtitle" else ""
+        content = (render_input.texts or {}).get(text.key, "")
         draw_text_block(base, text, content)
 
     return base

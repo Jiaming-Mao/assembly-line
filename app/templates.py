@@ -124,7 +124,7 @@ def default_template() -> TemplateDefinition:
         "size": [1080, 1920],
         "background": {"kind": "color", "value": "#f5f5f5", "opacity": 1},
         "slots": [
-            {"key": "screenshot-1", "box": [90, 420, 900, 1080], "radius": 32, "fit": "cover", "padding": 0, "align_x": "center", "align_y": "center"},
+            {"key": "main", "box": [90, 420, 900, 1080], "radius": 32, "fit": "cover", "padding": 0, "align_x": "center", "align_y": "center"},
         ],
         "texts": [
             {"key": "title", "box": [90, 120, 900, 180], "style": {"size": 64, "color": "#111111", "align": "left"}},

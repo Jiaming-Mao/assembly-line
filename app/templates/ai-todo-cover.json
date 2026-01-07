@@ -27,7 +27,7 @@
       "rotation": 0.0
     },
     {
-      "key": "glass",
+      "key": "overlay",
       "box": [
         592,
         108,
@@ -42,7 +42,7 @@
       "rotation": 0.0
     },
     {
-      "key": "ui-1",
+      "key": "main",
       "box": [
         608,
         124,

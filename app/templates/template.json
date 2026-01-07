@@ -1,6 +1,6 @@
 {
-  "key": "default",
-  "name": "Default Cover",
+  "key": "default-landscape",
+  "name": "Default Cover (Landscape)",
   "size": [
     1400,
     868
@@ -12,7 +12,7 @@
   },
   "slots": [
     {
-      "key": "screenshot-1",
+      "key": "main",
       "box": [
         90,
         420,

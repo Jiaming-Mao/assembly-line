@@ -65,13 +65,10 @@ class TemplateDefinition:
 
 @dataclass
 class RenderInput:
-    title: str
-    subtitle: str
-    background_path: Optional[str]
-    screenshot_paths: List[str]
+    # New-schema-only render input (CSV columns map by key)
     template_key: str
     output_name: str
-    # key-addressable content (recommended for CSV batch)
+    background_path: Optional[str]
     texts: Dict[str, str] = field(default_factory=dict)  # textKey -> content
     slot_paths: Dict[str, str] = field(default_factory=dict)  # slotKey -> image path
 
@@ -158,13 +155,20 @@ def load_template_from_file(path: Path) -> TemplateDefinition:
 
 
 def render_input_from_row(row: Dict[str, Any]) -> RenderInput:
+    def _clean_col(s: str) -> str:
+        # Strip whitespace and common zero-width/BOM characters injected by Excel/WPS exports.
+        # - U+FEFF: BOM / zero width no-break space
+        # - U+200B/200C/200D: zero width space/joiners
+        # - U+2060: word joiner
+        return (s or "").strip().lstrip("\ufeff\u200b\u200c\u200d\u2060")
+
     def _get_case_insensitive(keys: List[str]) -> Optional[Any]:
         for k in keys:
             if k in row:
                 return row.get(k)
-        lower_map = {str(k).strip().lower(): k for k in row.keys()}
+        lower_map = {_clean_col(str(k)).lower(): k for k in row.keys()}
         for k in keys:
-            original = lower_map.get(str(k).strip().lower())
+            original = lower_map.get(_clean_col(str(k)).lower())
             if original is not None:
                 return row.get(original)
         return None
@@ -176,13 +180,50 @@ def render_input_from_row(row: Dict[str, Any]) -> RenderInput:
             return value.strip()
         return str(value).strip()
 
-    # 1) key-addressable mappings (recommended)
+    row = row or {}
+
+    # Strict new-schema validation: no legacy columns, no unknown columns.
+    legacy_cols = {
+        "title",
+        "subtitle",
+        "background",
+        "screenshots",
+        "screenshot",
+        "template",
+        "layout",
+        "layout_key",
+        "output",
+    }
+    allowed_reserved = {"template_key", "output_name", "background_path"}
+
+    lower_cols = {_clean_col(str(k)).lower() for k in row.keys() if k is not None and _clean_col(str(k))}
+    offending_legacy = sorted(c for c in lower_cols if c in legacy_cols)
+    if offending_legacy:
+        raise ValueError(
+            "CSV 使用了旧 schema 列名（已不再支持）："
+            + ", ".join(offending_legacy)
+            + "。请改为新 schema：template_key, output_name, background_path, text.<key>, slot.<key>"
+        )
+
+    unknown = sorted(
+        c
+        for c in lower_cols
+        if c not in allowed_reserved and not (c.startswith("text.") or c.startswith("slot."))
+    )
+    if unknown:
+        raise ValueError(
+            "CSV 包含不支持的列名："
+            + ", ".join(unknown)
+            + "。仅支持：template_key, output_name, background_path, text.<key>, slot.<key>"
+        )
+
+    # 1) key-addressable mappings
     texts: Dict[str, str] = {}
     slot_paths: Dict[str, str] = {}
-    for col, raw in (row or {}).items():
+    for col, raw in row.items():
         if col is None:
             continue
-        col_str = str(col).strip()
+        col_str = _clean_col(str(col))
         if not col_str:
             continue
         low = col_str.lower()
@@ -195,31 +236,22 @@ def render_input_from_row(row: Dict[str, Any]) -> RenderInput:
             if key:
                 slot_paths[key] = _as_str(raw)
 
-    # 2) legacy fields (compatible)
-    screenshots_raw = _get_case_insensitive(["screenshots", "screenshot"]) or ""
-    if isinstance(screenshots_raw, str):
-        screenshot_paths = [p.strip() for p in screenshots_raw.replace("|", ",").split(",") if p.strip()]
-    elif isinstance(screenshots_raw, list):
-        screenshot_paths = [str(p) for p in screenshots_raw]
-    else:
-        screenshot_paths = []
+    # 2) reserved columns (new schema)
+    template_key = _as_str(_get_case_insensitive(["template_key"]))
+    if not template_key:
+        raise ValueError("CSV 缺少必填列 template_key 或该单元格为空")
 
-    title = _as_str(_get_case_insensitive(["title"]) or "")
-    subtitle = _as_str(_get_case_insensitive(["subtitle"]) or "")
-    background_path = _get_case_insensitive(["background_path", "background"])
-    background_path = _as_str(background_path) or None
+    output_name = _as_str(_get_case_insensitive(["output_name"]))
+    if not output_name:
+        raise ValueError("CSV 缺少必填列 output_name 或该单元格为空")
 
-    template_key = _as_str(_get_case_insensitive(["template_key", "layout", "template", "layout_key"]) or "default") or "default"
-    output_name = _as_str(_get_case_insensitive(["output_name", "output"]) or "cover.png") or "cover.png"
+    background_path = _as_str(_get_case_insensitive(["background_path"])) or None
 
     return RenderInput(
-        title=title,
-        subtitle=subtitle,
-        background_path=background_path,
-        screenshot_paths=screenshot_paths,
-        texts=texts,
-        slot_paths=slot_paths,
         template_key=template_key,
         output_name=output_name,
+        background_path=background_path,
+        texts=texts,
+        slot_paths=slot_paths,
     )
 
