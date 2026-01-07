@@ -174,7 +174,7 @@ assembly line/
 
 ### CSV 文件格式
 
-CSV 文件 **仅支持按 key 显式映射的新 schema**。旧 schema（如 `title/subtitle/screenshots/template/output/background`）已不再支持。
+CSV 文件使用按 key 显式映射的列名规则。若包含不支持的列名，程序会 **自动忽略这些列**，并在点击“批量生成”开始时在 Log 中提示哪些列被忽略。
 
 > 重要：列名大小写规则
 > - `template_key` / `output_name` / `background_path`：**列名大小写不敏感**

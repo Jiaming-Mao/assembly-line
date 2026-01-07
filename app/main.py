@@ -947,36 +947,17 @@ class CoverApp(tk.Tk):
         lower = [_clean_col(str(x)).lower() for x in (fieldnames or []) if x is not None and _clean_col(str(x))]
         cols = set(lower)
         missing = [c for c in ["template_key", "output_name"] if c not in cols]
-        legacy = sorted(
+        unsupported = sorted(
             c
             for c in cols
             if c
-            in {
-                "title",
-                "subtitle",
-                "background",
-                "screenshots",
-                "screenshot",
-                "template",
-                "layout",
-                "layout_key",
-                "output",
-            }
+            and c not in {"template_key", "output_name", "background_path"}
+            and not (c.startswith("text.") or c.startswith("slot."))
         )
-        unknown = sorted(
-            c
-            for c in cols
-            if c not in {"template_key", "output_name", "background_path"} and not (c.startswith("text.") or c.startswith("slot."))
-        )
-        if missing or legacy or unknown:
-            parts = []
-            if missing:
-                parts.append("缺少必填列: " + ", ".join(missing))
-            if legacy:
-                parts.append("包含旧列名(不再支持): " + ", ".join(legacy))
-            if unknown:
-                parts.append("包含未知列名: " + ", ".join(unknown))
-            return False, "；".join(parts)
+        if missing:
+            return False, "缺少必填列: " + ", ".join(missing)
+        if unsupported:
+            return True, "包含不支持列名(将被忽略): " + ", ".join(unsupported)
         return True, "OK"
 
     # Helpers ----------------------------------------------------------------
@@ -1035,16 +1016,66 @@ class CoverApp(tk.Tk):
         try:
             # Use utf-8-sig to transparently handle UTF-8 BOM from Excel/WPS exports
             with open(csv_path, newline="", encoding="utf-8-sig") as f:
-                rows = list(csv.DictReader(f))
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames or []
+                rows = list(reader)
         except Exception as exc:
             messagebox.showerror("Error", f"读取 CSV 失败: {exc}")
             return
+
+        def _clean_col(x: str) -> str:
+            # Strip whitespace and common zero-width/BOM characters injected by Excel/WPS exports.
+            # - U+FEFF: BOM / zero width no-break space
+            # - U+200B/200C/200D: zero width space/joiners
+            # - U+2060: word joiner
+            return (x or "").strip().lstrip("\ufeff\u200b\u200c\u200d\u2060")
+
+        def _is_supported_col(lower_col: str) -> bool:
+            if not lower_col:
+                return False
+            if lower_col in {"template_key", "output_name", "background_path"}:
+                return True
+            return lower_col.startswith("text.") or lower_col.startswith("slot.")
+
+        cols_lower = {_clean_col(str(x)).lower() for x in (fieldnames or []) if x is not None and _clean_col(str(x))}
+        missing = [c for c in ["template_key", "output_name"] if c not in cols_lower]
+        if missing:
+            msg = "缺少必填列: " + ", ".join(missing)
+            self.log(f"CSV 表头校验失败：{msg}")
+            messagebox.showerror("CSV 表头校验", msg)
+            return
+
+        unsupported_cols = []
+        seen = set()
+        for x in (fieldnames or []):
+            if x is None:
+                continue
+            c = _clean_col(str(x))
+            if not c:
+                continue
+            low = c.lower()
+            if not _is_supported_col(low) and low not in seen:
+                unsupported_cols.append(c)
+                seen.add(low)
+        if unsupported_cols:
+            self.log("CSV 格式问题：包含不支持列名（已忽略）：" + ", ".join(unsupported_cols))
+
         out_dir = Path(self.output_dir_var.get())
         out_dir.mkdir(parents=True, exist_ok=True)
         success = 0
         for idx, row in enumerate(rows, start=1):
             try:
-                ri = render_input_from_row(row)
+                filtered_row = {}
+                for k, v in (row or {}).items():
+                    if k is None:
+                        continue
+                    ck = _clean_col(str(k))
+                    if not ck:
+                        continue
+                    if _is_supported_col(ck.lower()):
+                        # Keep original key casing to preserve case-insensitive lookup in render_input_from_row()
+                        filtered_row[k] = v
+                ri = render_input_from_row(filtered_row)
             except Exception as exc:
                 self.log(f"行 {idx} 解析失败: {exc}")
                 continue

@@ -187,41 +187,6 @@ def render_input_from_row(row: Dict[str, Any]) -> RenderInput:
 
     row = row or {}
 
-    # Strict new-schema validation: no legacy columns, no unknown columns.
-    legacy_cols = {
-        "title",
-        "subtitle",
-        "background",
-        "screenshots",
-        "screenshot",
-        "template",
-        "layout",
-        "layout_key",
-        "output",
-    }
-    allowed_reserved = {"template_key", "output_name", "background_path"}
-
-    lower_cols = {_clean_col(str(k)).lower() for k in row.keys() if k is not None and _clean_col(str(k))}
-    offending_legacy = sorted(c for c in lower_cols if c in legacy_cols)
-    if offending_legacy:
-        raise ValueError(
-            "CSV 使用了旧 schema 列名（已不再支持）："
-            + ", ".join(offending_legacy)
-            + "。请改为新 schema：template_key, output_name, background_path, text.<key>, slot.<key>"
-        )
-
-    unknown = sorted(
-        c
-        for c in lower_cols
-        if c not in allowed_reserved and not (c.startswith("text.") or c.startswith("slot."))
-    )
-    if unknown:
-        raise ValueError(
-            "CSV 包含不支持的列名："
-            + ", ".join(unknown)
-            + "。仅支持：template_key, output_name, background_path, text.<key>, slot.<key>"
-        )
-
     # 1) key-addressable mappings
     texts: Dict[str, str] = {}
     text_colors: Dict[str, str] = {}
