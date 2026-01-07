@@ -1,0 +1,61 @@
+{
+  "key": "ai-todo-cover",
+  "name": "AI Todo Cover",
+  "size": [
+    1400,
+    864
+  ],
+  "background": {
+    "kind": "image",
+    "value": "/Users/bytedance/Downloads/Frame 2147225004.jpg",
+    "opacity": 1.0
+  },
+  "slots": [
+    {
+      "key": "background",
+      "box": [
+        0,
+        0,
+        1400,
+        864
+      ],
+      "radius": 0,
+      "fit": "cover",
+      "padding": 0,
+      "align_x": "center",
+      "align_y": "top",
+      "rotation": 0.0
+    },
+    {
+      "key": "glass",
+      "box": [
+        592,
+        108,
+        1000,
+        648
+      ],
+      "radius": 32,
+      "fit": "cover",
+      "padding": 0,
+      "align_x": "left",
+      "align_y": "center",
+      "rotation": 0.0
+    },
+    {
+      "key": "ui-1",
+      "box": [
+        608,
+        124,
+        1388,
+        616
+      ],
+      "radius": 24,
+      "fit": "cover",
+      "padding": 0,
+      "align_x": "left",
+      "align_y": "center",
+      "rotation": 0.0
+    }
+  ],
+  "texts": []
+}

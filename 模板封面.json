@@ -1,0 +1,68 @@
+{
+  "key": "ai-todo-cover",
+  "name": "AI Todo Cover",
+  "size": [1400, 864],
+  "background": {
+    "kind": "color",
+    "value": "#F3E9FF",
+    "opacity": 1.0
+  },
+  "slots": [
+    {
+      "key": "screenshot-left",
+      "box": [70, 355, 640, 500],
+      "radius": 28,
+      "fit": "cover",
+      "padding": 0,
+      "rotation": -10,
+      "perspective": [1, 0.18, 0, 0.06, 1, 0, 0.00035, 0.0007]
+    },
+    {
+      "key": "screenshot-1",
+      "box": [300, 300, 1040, 560],
+      "radius": 32,
+      "fit": "cover",
+      "padding": 0,
+      "rotation": 0,
+      "perspective": [1, 0.06, 0, 0.02, 1, 0, 0.0002, 0.00035]
+    },
+    {
+      "key": "screenshot-right",
+      "box": [910, 350, 520, 420],
+      "radius": 28,
+      "fit": "cover",
+      "padding": 0,
+      "rotation": 8,
+      "perspective": [1, -0.14, 0, 0.03, 1, 0, 0.0003, 0.00065]
+    }
+  ],
+  "texts": [
+    {
+      "key": "title",
+      "box": [80, 110, 1240, 220],
+      "style": {
+        "font": null,
+        "size": 96,
+        "color": "#5A2CA0",
+        "align": "left",
+        "max_width": null,
+        "line_spacing": 1.1,
+        "stroke_width": 0,
+        "stroke_fill": null,
+        "shadow": { "offset": [0, 8], "color": "#0000001A", "blur": 18 }
+      }
+    },
+    {
+      "key": "subtitle",
+      "box": [80, 300, 1240, 110],
+      "style": {
+        "font": null,
+        "size": 44,
+        "color": "#6B6B6B",
+        "align": "left",
+        "line_spacing": 1.2,
+        "shadow": null
+      }
+    }
+  ]
+}
