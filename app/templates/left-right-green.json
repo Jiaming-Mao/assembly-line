@@ -34,7 +34,7 @@
         1000,
         648
       ],
-      "radius": 32,
+      "radius": 0,
       "fit": "cover",
       "padding": 0,
       "align_x": "left",
@@ -46,7 +46,7 @@
       "box": [
         608,
         124,
-        1388,
+        1100,
         616
       ],
       "radius": 24,

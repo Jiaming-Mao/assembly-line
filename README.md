@@ -158,6 +158,7 @@ assembly line/
    - 切换到 "表单" 标签页
    - 根据当前模板的 `texts/slots` 动态填写：
      - 文本：对应 `text.<key>`
+     - 文本颜色（可选）：对应 `text.<key>.color`，留空则使用模板默认色
      - 图片：对应 `slot.<key>`
    - 选择背景图片（可选，覆盖模板背景）
    - 设置输出文件名
@@ -183,16 +184,17 @@ CSV 文件 **仅支持按 key 显式映射的新 schema**（列名不区分大�
 | `output_name` | 输出文件名 | `case-001.png` |
 | `background_path` | 覆盖模板背景图（可选） | `/path/to/bg.png` |
 | `text.<textKey>` | 填充任意文本块（按模板 `texts[].key`） | `text.title`、`text.body` |
+| `text.<textKey>.color` | 覆盖对应文本块的颜色（可选，十六进制） | `text.title.color` |
 | `slot.<slotKey>` | 填充任意图片插槽（按模板 `slots[].key`） | `slot.main`、`slot.overlay`、`slot.background` |
 
 **示例：**
 
 ```csv
-template_key,output_name,background_path,text.title,text.subtitle,slot.main
-default,case-001.png,,一张表管公司,让业务流转起来,/abs/main.png
+template_key,output_name,background_path,text.title,text.title.color,text.subtitle,text.subtitle.color,slot.main
+default,case-001.png,,一张表管公司,#111111,让业务流转起来,#444444,/abs/main.png
 
-template_key,output_name,background_path,text.title,text.subtitle,slot.background,slot.overlay,slot.main
-left-right-green,case-002.png,,一张表管公司,让业务流转起来,/abs/bg.png,/abs/overlay.png,/abs/main.png
+template_key,output_name,background_path,text.title,text.title.color,text.subtitle,text.subtitle.color,slot.background,slot.overlay,slot.main
+left-right-green,case-002.png,,一张表管公司,#111111,让业务流转起来,#444444,/abs/bg.png,/abs/overlay.png,/abs/main.png
 ```
 
 ### 模板编辑器使用

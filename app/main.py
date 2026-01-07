@@ -639,6 +639,7 @@ class CoverApp(tk.Tk):
         for child in self.form_dynamic.winfo_children():
             child.destroy()
         self.text_vars = {}
+        self.text_color_vars = {}
         self.slot_vars = {}
 
         template = self._get_template(self.template_var.get())
@@ -650,9 +651,13 @@ class CoverApp(tk.Tk):
             for i, t in enumerate(template.texts):
                 key = t.key
                 var = tk.StringVar()
+                color_var = tk.StringVar()
                 self.text_vars[key] = var
+                self.text_color_vars[key] = color_var
                 ttk.Label(text_frame, text=f"{key}  (text.{key})").grid(row=i, column=0, sticky="w", pady=2)
                 ttk.Entry(text_frame, textvariable=var).grid(row=i, column=1, sticky="ew", pady=2)
+                ttk.Label(text_frame, text="color").grid(row=i, column=2, sticky="w", padx=(8, 2), pady=2)
+                ttk.Entry(text_frame, textvariable=color_var, width=10).grid(row=i, column=3, sticky="w", pady=2)
 
         if template.slots:
             slot_frame = ttk.Labelframe(self.form_dynamic, text="Slots", padding=8)
@@ -841,12 +846,14 @@ class CoverApp(tk.Tk):
 
     def _build_render_input(self) -> RenderInput:
         texts = {k: v.get() for k, v in (self.text_vars or {}).items() if v.get().strip()}
+        text_colors = {k: v.get().strip() for k, v in (getattr(self, "text_color_vars", None) or {}).items() if v.get().strip()}
         slot_paths = {k: v.get() for k, v in (self.slot_vars or {}).items() if v.get().strip()}
         return RenderInput(
             background_path=self.background_var.get() or None,
             template_key=self.template_var.get(),
             output_name=self.output_name_var.get() or "cover.png",
             texts=texts,
+            text_colors=text_colors,
             slot_paths=slot_paths,
         )
 
@@ -922,7 +929,9 @@ class CoverApp(tk.Tk):
 
         headers = ["template_key", "output_name", "background_path"]
         # Deterministic order: follow template list order
-        headers += [f"text.{t.key}" for t in template.texts]
+        for t in template.texts:
+            headers.append(f"text.{t.key}")
+            headers.append(f"text.{t.key}.color")
         headers += [f"slot.{s.key}" for s in template.slots]
 
         try:

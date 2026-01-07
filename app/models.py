@@ -70,6 +70,7 @@ class RenderInput:
     output_name: str
     background_path: Optional[str]
     texts: Dict[str, str] = field(default_factory=dict)  # textKey -> content
+    text_colors: Dict[str, str] = field(default_factory=dict)  # textKey -> "#RRGGBB" override
     slot_paths: Dict[str, str] = field(default_factory=dict)  # slotKey -> image path
 
 
@@ -219,6 +220,7 @@ def render_input_from_row(row: Dict[str, Any]) -> RenderInput:
 
     # 1) key-addressable mappings
     texts: Dict[str, str] = {}
+    text_colors: Dict[str, str] = {}
     slot_paths: Dict[str, str] = {}
     for col, raw in row.items():
         if col is None:
@@ -228,9 +230,17 @@ def render_input_from_row(row: Dict[str, Any]) -> RenderInput:
             continue
         low = col_str.lower()
         if low.startswith("text."):
-            key = col_str.split(".", 1)[1].strip()
-            if key:
-                texts[key] = _as_str(raw)
+            rest = col_str.split(".", 1)[1].strip()
+            # Support optional per-text color override: text.<key>.color
+            # (Keys themselves are expected not to contain '.', per template editor validation.)
+            if rest.lower().endswith(".color"):
+                key = rest.rsplit(".", 1)[0].strip()
+                if key:
+                    text_colors[key] = _as_str(raw)
+            else:
+                key = rest
+                if key:
+                    texts[key] = _as_str(raw)
         elif low.startswith("slot."):
             key = col_str.split(".", 1)[1].strip()
             if key:
@@ -252,6 +262,7 @@ def render_input_from_row(row: Dict[str, Any]) -> RenderInput:
         output_name=output_name,
         background_path=background_path,
         texts=texts,
+        text_colors=text_colors,
         slot_paths=slot_paths,
     )
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 
@@ -331,7 +332,14 @@ def compose_cover(render_input: RenderInput, template: TemplateDefinition) -> Im
     # texts
     for text in template.texts:
         content = (render_input.texts or {}).get(text.key, "")
-        draw_text_block(base, text, content)
+        override = (getattr(render_input, "text_colors", None) or {}).get(text.key)
+        if isinstance(override, str) and override.strip().startswith("#"):
+            # Avoid mutating template objects in registry: copy then override.
+            tmp = deepcopy(text)
+            tmp.style.color = override.strip()
+            draw_text_block(base, tmp, content)
+        else:
+            draw_text_block(base, text, content)
 
     return base
 
