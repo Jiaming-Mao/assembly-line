@@ -261,8 +261,9 @@ class TemplateEditor(tk.Toplevel):
         slot_frame = ttk.Labelframe(self.detail, text="Slot", padding=6)
         slot_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=4)
         ttk.Label(slot_frame, text="Radius").grid(row=0, column=0, sticky="w")
-        self.radius_var = tk.IntVar()
-        ttk.Entry(slot_frame, textvariable=self.radius_var, width=6).grid(row=0, column=1, sticky="w")
+        # CSS-like input: "24" or "24,0,0,24" (TL,TR,BR,BL). Saved to JSON as number or array.
+        self.radius_css_var = tk.StringVar()
+        ttk.Entry(slot_frame, textvariable=self.radius_css_var, width=14).grid(row=0, column=1, sticky="w")
         ttk.Label(slot_frame, text="Fit").grid(row=1, column=0, sticky="w")
         self.fit_var = tk.StringVar(value="cover")
         ttk.Combobox(slot_frame, values=["cover", "contain"], textvariable=self.fit_var, width=8, state="readonly").grid(row=1, column=1, sticky="w")
@@ -452,7 +453,18 @@ class TemplateEditor(tk.Toplevel):
         self.w_box_var.set(w)
         self.h_box_var.set(h)
         if kind == "slot":
-            self.radius_var.set(item.get("radius", 0))
+            r = item.get("radius", 0)
+            if isinstance(r, (list, tuple)) and len(r) == 4:
+                try:
+                    vals = [int(v) for v in r]
+                    self.radius_css_var.set(f"{vals[0]}, {vals[1]}, {vals[2]}, {vals[3]}")
+                except Exception:
+                    self.radius_css_var.set("0")
+            else:
+                try:
+                    self.radius_css_var.set(str(int(r or 0)))
+                except Exception:
+                    self.radius_css_var.set("0")
             self.fit_var.set(item.get("fit", "cover"))
             self.pad_var.set(item.get("padding", 0))
             self.align_x_var.set(item.get("align_x", "center"))
@@ -467,9 +479,9 @@ class TemplateEditor(tk.Toplevel):
             self.font_color_var.set(style.get("color", "#111111"))
             self.align_var.set(style.get("align", "left"))
 
-    def _apply_detail(self):
+    def _apply_detail(self) -> bool:
         if not self.selected:
-            return
+            return True
         kind, idx = self.selected
         item = self.state[kind + "s"][idx]
         item["key"] = self.elem_key.get().strip() or item.get("key")
@@ -487,10 +499,29 @@ class TemplateEditor(tk.Toplevel):
             x_val, y_val, w_val, h_val = item.get("box", [0, 0, 100, 100])
         item["box"] = [x_val, y_val, w_val, h_val]
         if kind == "slot":
-            try:
-                item["radius"] = int(self.radius_var.get())
-            except (ValueError, tk.TclError):
-                pass
+            raw = (self.radius_css_var.get() or "").strip()
+            if raw:
+                # tolerate spaces and common full-width comma
+                raw = raw.replace("，", ",")
+                parts = [p.strip() for p in raw.split(",")]
+                parts = [p for p in parts if p != ""]
+                try:
+                    if len(parts) == 1:
+                        v = int(parts[0])
+                        if v < 0:
+                            raise ValueError("radius must be >= 0")
+                        item["radius"] = v
+                    elif len(parts) == 4:
+                        vals = [int(p) for p in parts]
+                        if any(v < 0 for v in vals):
+                            raise ValueError("radius must be >= 0")
+                        # Keep JSON stable: uniform -> number, else -> array
+                        item["radius"] = vals[0] if len(set(vals)) == 1 else vals
+                    else:
+                        raise ValueError("Radius must be 1 value or 4 comma-separated values (TL,TR,BR,BL)")
+                except Exception as exc:
+                    messagebox.showerror("Error", f"Invalid Radius: {exc}\nExamples: 24  or  24,0,0,24")
+                    return False
             item["fit"] = self.fit_var.get()
             try:
                 item["padding"] = int(self.pad_var.get())
@@ -521,6 +552,7 @@ class TemplateEditor(tk.Toplevel):
             style["align"] = self.align_var.get()
             item["style"] = style
         self.redraw()
+        return True
 
     # Canvas interaction -----------------------------------------------------
     def _on_canvas_click(self, event):
@@ -577,7 +609,8 @@ class TemplateEditor(tk.Toplevel):
     def _save(self):
         # Apply any pending changes from UI to state before saving
         if self.selected:
-            self._apply_detail()
+            if not self._apply_detail():
+                return
 
         # Validate keys (new schema relies on keys for CSV columns)
         err = self._validate_keys()

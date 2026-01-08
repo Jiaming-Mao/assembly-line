@@ -53,10 +53,15 @@
         1208,
         768
       ],
-      "radius": 24,
+      "radius": [
+        24,
+        24,
+        0,
+        0
+      ],
       "fit": "cover",
       "padding": 0,
-      "align_x": "center",
+      "align_x": "left",
       "align_y": "top",
       "rotation": 0.0,
       "rotate_x": 0.0,

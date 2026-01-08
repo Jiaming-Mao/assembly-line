@@ -87,7 +87,11 @@ def template_to_dict(template: TemplateDefinition) -> dict:
             {
                 "key": slot.key,
                 "box": list(slot.box),
-                "radius": slot.radius,
+                "radius": (
+                    [slot.radii[0], slot.radii[1], slot.radii[2], slot.radii[3]]
+                    if getattr(slot, "radii", None) and len(slot.radii) == 4 and len(set(slot.radii)) > 1
+                    else int(getattr(slot, "radius", 0) or 0)
+                ),
                 "fit": slot.fit,
                 "padding": slot.padding,
                 "align_x": slot.align_x,

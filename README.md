@@ -127,7 +127,9 @@ assembly line/
 图片插槽定义了图片在封面中的位置和样式：
 - `key`: 唯一标识符
 - `box`: 位置和大小 `[x, y, width, height]`
-- `radius`: 圆角半径
+- `radius`: 圆角半径（支持两种格式）
+  - `number`: 如 `24`（四角一致，兼容旧模板）
+  - `array`: 如 `[24, 0, 0, 24]`（四角分别设置，顺序为 **CSS**：`[topLeft, topRight, bottomRight, bottomLeft]`）
 - `fit`: 适配方式（`cover` 或 `contain`）
 - `padding`: 内边距
 - `align_x`: 水平对齐方式（`left` / `center` / `right`）
@@ -572,7 +574,9 @@ with open("data.csv", encoding="utf-8") as f:
 ### 插槽配置
 
 - `box`: `[x, y, width, height]` - 位置和大小（像素）
-- `radius`: 圆角半径（像素），0 表示无圆角
+- `radius`: 圆角半径（像素），0 表示无圆角（支持两种格式）
+  - `number`: `24`（四角一致）
+  - `array`: `[24, 0, 0, 24]`（四角分别设置；顺序为 **CSS**：`[topLeft, topRight, bottomRight, bottomLeft]`）
 - `fit`: `"cover"` 或 `"contain"`
   - `cover`: 填充整个区域，可能裁剪
   - `contain`: 完整显示，可能有空白
@@ -591,6 +595,8 @@ with open("data.csv", encoding="utf-8") as f:
   - `rotate_x/rotate_y/rotation(rotate_z)` 会触发 3D 投影渲染（使用固定相机距离产生透视效果）
   - 渲染时会按变换后的四边形计算实际包围盒并扩展输出图层，**不会被原始 `box` 裁剪**；`box.x/y` 仍作为定位锚点
   - 斜边已做抗锯齿优化：编辑器预览使用超采样绘制，导出渲染对 warp 做超采样后再缩小
+
+> 模板编辑器提示：Radius 输入支持 CSS 风格填写，例如 `24` 或 `24,0,0,24`；保存模板时会规范化为 `number` 或 `array`（JSON 不支持 string）。
 
 > 注意：模板不支持 `perspective` 字段（已移除），透视效果使用内部固定参数（对模板作者透明）。
 

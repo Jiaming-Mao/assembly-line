@@ -1,11 +1,12 @@
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Tuple, Dict, Any, Union
 
 
 Color = Tuple[int, int, int, int]  # RGBA
 Box = Tuple[int, int, int, int]  # x, y, width, height
+CornerRadii = Tuple[int, int, int, int]  # topLeft, topRight, bottomRight, bottomLeft
 
 
 @dataclass
@@ -26,6 +27,9 @@ class Slot:
     key: str
     box: Box
     radius: int = 0
+    # Per-corner radii in CSS order: (topLeft, topRight, bottomRight, bottomLeft).
+    # When set, rendering should prefer this over `radius`.
+    radii: Optional[CornerRadii] = None
     fit: str = "cover"  # cover | contain
     padding: int = 0
     align_x: str = "center"  # left | center | right
@@ -111,11 +115,35 @@ def load_template_from_json(data: Dict[str, Any]) -> TemplateDefinition:
     slots = []
     for slot in data.get("slots", []) or []:
         box = _ensure_int_tuple(slot.get("box"), 4, (0, 0, size[0], size[1]))
+        radius_raw: Union[int, float, str, list, tuple, None] = slot.get("radius", 0)
+        radii: Optional[CornerRadii] = None
+        radius_int = 0
+        if isinstance(radius_raw, (list, tuple)) and len(radius_raw) == 4:
+            try:
+                vals = tuple(max(0, int(v)) for v in radius_raw)  # type: ignore[arg-type]
+                radii = (vals[0], vals[1], vals[2], vals[3])
+                # Keep legacy `radius` populated only when uniform, for stable export/back-compat.
+                radius_int = vals[0] if vals.count(vals[0]) == 4 else 0
+            except Exception:
+                print(f"[template] invalid slot.radius array for key={slot.get('key')}: {radius_raw!r}")
+                radii = None
+                radius_int = 0
+        elif isinstance(radius_raw, str):
+            # Explicitly reject string in JSON schema (UI may accept CSS-like text, but should save as number/array).
+            print(f"[template] invalid slot.radius (string not supported) for key={slot.get('key')}: {radius_raw!r}")
+            radii = None
+            radius_int = 0
+        else:
+            try:
+                radius_int = max(0, int(radius_raw or 0))
+            except Exception:
+                radius_int = 0
         slots.append(
             Slot(
                 key=str(slot.get("key", f"slot-{len(slots)}")),
                 box=box,
-                radius=int(slot.get("radius", 0)),
+                radius=radius_int,
+                radii=radii,
                 fit=slot.get("fit", "cover"),
                 padding=int(slot.get("padding", 0)),
                 align_x=slot.get("align_x", "center"),

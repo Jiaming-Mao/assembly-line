@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, Tuple, List, Dict, Any, Union
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -133,39 +133,74 @@ def _resize_fit(img: Image.Image, target_size: Tuple[int, int], fit: str, align_
     return resized.crop((left, top, left + tw, top + th))
 
 
-def _round_corners(img: Image.Image, radius: int) -> Image.Image:
+def _round_corners(img: Image.Image, radius: Union[int, Tuple[int, int, int, int]]) -> Image.Image:
     """
     Apply rounded corners to an image using supersampling for anti-aliasing.
+
+    radius can be:
+    - int: uniform radius
+    - (tl, tr, br, bl): per-corner radii in CSS order
     """
-    if radius <= 0:
-        return img
-    
-    # 1. 设置超采样因子（4倍能获得很好的平滑效果）
-    factor = 4
     w, h = img.size
-    
-    # 2. 创建放大后的 mask 画布
-    # 使用 'L' 模式 (8-bit pixels, black and white)
-    mask = Image.new("L", (w * factor, h * factor), 0)
-    draw = ImageDraw.Draw(mask)
-    
-    # 3. 在高清画布上绘制圆角矩形
-    # 注意：坐标和半径都需要乘以 factor
-    draw.rounded_rectangle(
-        [(0, 0), (w * factor, h * factor)], 
-        radius=radius * factor, 
-        fill=255
-    )
-    
-    # 4. 缩小回原尺寸，使用 LANCZOS 滤镜进行抗锯齿处理
-    # 这一步会产生边缘的半透明像素，消除锯齿
-    mask = mask.resize((w, h), Image.Resampling.LANCZOS)
-    
-    # 5. 应用遮罩
-    img = img.copy()
-    img.putalpha(mask)
-    
-    return img
+
+    # Normalize to 4 radii (CSS order)
+    if isinstance(radius, (tuple, list)) and len(radius) == 4:
+        tl, tr, br, bl = (int(radius[0]), int(radius[1]), int(radius[2]), int(radius[3]))
+    else:
+        r = int(radius or 0)
+        tl = tr = br = bl = r
+
+    # Clamp (avoid weird shapes / out-of-bounds)
+    max_r = max(0, int(min(w, h) / 2))
+    tl = max(0, min(max_r, tl))
+    tr = max(0, min(max_r, tr))
+    br = max(0, min(max_r, br))
+    bl = max(0, min(max_r, bl))
+
+    if tl <= 0 and tr <= 0 and br <= 0 and bl <= 0:
+        return img
+
+    # If uniform, keep the existing rounded_rectangle approach (simple & fast).
+    if tl == tr == br == bl:
+        factor = 4
+        mask = Image.new("L", (w * factor, h * factor), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.rounded_rectangle([(0, 0), (w * factor, h * factor)], radius=tl * factor, fill=255)
+        mask = mask.resize((w, h), Image.Resampling.LANCZOS)
+        out = img.copy()
+        out.putalpha(mask)
+        return out
+
+    # Per-corner radii: build mask by starting with full rect then cutting corners.
+    factor = 4
+    W, H = w * factor, h * factor
+    tl *= factor
+    tr *= factor
+    br *= factor
+    bl *= factor
+
+    mask_hi = Image.new("L", (W, H), 255)
+    draw = ImageDraw.Draw(mask_hi)
+
+    def cut_corner(clear_box: Tuple[int, int, int, int], arc_box: Tuple[int, int, int, int], start: int, end: int):
+        # Clear only the r-by-r corner square; then paint quarter-circle back in.
+        # (Clearing the full 2r box would remove straight-edge areas that should remain opaque.)
+        draw.rectangle(list(clear_box), fill=0)
+        draw.pieslice(list(arc_box), start=start, end=end, fill=255)
+
+    if tl > 0:
+        cut_corner((0, 0, tl, tl), (0, 0, 2 * tl, 2 * tl), start=180, end=270)
+    if tr > 0:
+        cut_corner((W - tr, 0, W, tr), (W - 2 * tr, 0, W, 2 * tr), start=270, end=360)
+    if br > 0:
+        cut_corner((W - br, H - br, W, H), (W - 2 * br, H - 2 * br, W, H), start=0, end=90)
+    if bl > 0:
+        cut_corner((0, H - bl, bl, H), (0, H - 2 * bl, 2 * bl, H), start=90, end=180)
+
+    mask = mask_hi.resize((w, h), Image.Resampling.LANCZOS)
+    out = img.copy()
+    out.putalpha(mask)
+    return out
 
 
 def _project_slot_quad(w: int, h: int, rotate_x: float, rotate_y: float, rotate_z: float, camera_k: float = 2.5):
@@ -254,7 +289,8 @@ def place_slot(base: Image.Image, slot: Slot, content_path: Path):
     pad = slot.padding
     target_size = (max(1, w - pad * 2), max(1, h - pad * 2))
     fitted = _resize_fit(img, target_size, slot.fit, slot.align_x, slot.align_y)
-    rounded = _round_corners(fitted, slot.radius)
+    radii = getattr(slot, "radii", None) or (int(getattr(slot, "radius", 0) or 0),) * 4
+    rounded = _round_corners(fitted, radii)
     # Compose into a slot-sized layer so we can rotate the whole slot (including padding + rounded corners)
     slot_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     slot_layer.alpha_composite(rounded, dest=(pad, pad))
